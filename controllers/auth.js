@@ -2,18 +2,40 @@
 const { response } = require('express');
 const {validationResult} = require('express-validator');
 const Usuario = require('../models/Usuario')
+const bcrypt = require('bcryptjs')
+const {generarJWT} = require('../helpers/jwt')
 
 const crearUsuario = async (req, res = response) => {
 
-    // const { name, email, password } = req.body
+    const { email, password } = req.body
+    
     try{
-        const usuario = new Usuario(req.body);
-    
+        let usuario = await Usuario.findOne({ email })
+        
+        if(usuario) {
+            return res.status(400).json({
+                ok: false,
+                msg: 'Un usuario ya existe con ese correo electronico'
+            })
+        }
+
+        usuario = new Usuario(req.body);
+        
+        //Encryptar la contraseña
+        const salt = bcrypt.genSaltSync(); 
+        usuario.password = bcrypt.hashSync(password, salt);
+        
         await usuario.save();
-    
+       
+        //Generar JWT
+        const token = await generarJWT(usuario.id, usuario.name);
+        
+        
         res.status(201).json({
             ok: true,
-            msg: 'registro',
+            uid: usuario.id,
+            name: usuario.name,
+            token
         })
 
     } catch(error) {
@@ -24,23 +46,63 @@ const crearUsuario = async (req, res = response) => {
     }
 }
 
-const loginUsuario = (req, res = response) => {
+const loginUsuario = async(req, res = response) => {
 
     const { email, password } = req.body
 
-    res.json({
-        ok: true,
-        msg: 'login',
-        email,
-        password
-    })
+    try {
+        const  usuario = await Usuario.findOne({ email })
+        
+        if(!usuario) {
+            return res.status(400).json({
+                ok: false,
+                msg: 'El usuario no existe con ese email'
+            })
+        }
+
+        //Confirmar los passwords
+        const validPassword = bcrypt.compareSync(password, usuario.password);
+        //Retorna un true si es valido y un false si no lo es.
+
+        if(!validPassword) {
+            return res.status(400).json({
+                ok: false,
+                msg: 'Password incorrecto'
+            })
+        }
+
+        //Generar JWT
+        const token = await generarJWT(usuario.id, usuario.name);
+
+
+        res.json({
+            ok: true, 
+            uid: usuario.id,
+            name: usuario.name,
+            token
+        })
+
+
+    } catch(error) {
+        res.status(500).json({
+            ok: false,
+            msn: 'Por favor hable con el admin'
+        })
+    }
 }
 
-const revalidarToken = (req, res = response) => {
+const revalidarToken = async(req, res = response) => {
+
+    const { uid, name } = req;
+
+    //Generar un nuevo JWT y retornarlo en esta petición
+    const token = await generarJWT(uid, name);
     
     res.json({
         ok: true,
-        msg: 'renew'
+        uid,
+        name,
+        token
     })
 }
 
